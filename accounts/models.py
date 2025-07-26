@@ -1,6 +1,33 @@
+from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 import uuid
+
+
+class UserManager(BaseUserManager):
+    use_in_migrations = True
+
+    def create_user(self, email, password, **extra_fields):
+        if not email:
+            raise ValueError("이메일은 필수 입력 항목입니다.")
+        if not password:
+            raise ValueError("비밀번호는 필수 입력 항목입니다.")
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        if not password:
+            raise ValueError("관리자 계정은 비밀번호가 필수입니다.")
+        if extra_fields.get("is_staff") is not True:
+            raise ValueError("Superuser는 is_staff=True여야 합니다.")
+        if extra_fields.get("is_superuser") is not True:
+            raise ValueError("Superuser는 is_superuser=True여야 합니다.")
+        return self.create_user(email, password, **extra_fields)
 
 
 class HealthInfoBase(models.Model):
@@ -34,6 +61,8 @@ class Medication(HealthInfoBase):
 
 
 class User(AbstractUser):
+
+    objects = UserManager()
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     username = None
     email = models.EmailField("이메일", unique=True)
