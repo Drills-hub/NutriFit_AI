@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "allauth.socialaccount",
     # local apps
     "accounts",
+    "data_managements",
 ]
 
 SITE_ID = 1  # allauth에 필요
