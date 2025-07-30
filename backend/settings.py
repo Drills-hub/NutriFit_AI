@@ -41,12 +41,25 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
+    "django.contrib.sites",  # allauth에 필요
     "django.contrib.staticfiles",
     # third party apps
     "rest_framework",
+    "rest_framework.authtoken",  # dj-rest-auth에 필요
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    "dj_rest_auth",
+    "dj_rest_auth.registration",  # dj-rest-auth 회원가입 기능
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    # local apps
+    "accounts",
 ]
+
+SITE_ID = 1  # allauth에 필요
+
+AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -56,6 +69,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "allauth.account.middleware.AccountMiddleware",  # allauth에 필요
 ]
 
 ROOT_URLCONF = "backend.urls"
@@ -144,8 +158,29 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
 }
 
+# dj-rest-auth 설정
+REST_AUTH = {
+    "USE_JWT": True,
+    "JWT_AUTH_HTTPONLY": False,  # Refresh Token을 쿠키가 아닌 응답 바디로 받기 위함
+    "REGISTER_SERIALIZER": "accounts.serializers.SignUpSerializer",
+    "USER_DETAILS_SERIALIZER": "accounts.serializers.UserDetailSerializer",
+}
+
+# django-allauth 설정
+AUTHENTICATION_BACKENDS = [
+    "allauth.account.auth_backends.AuthenticationBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+ACCOUNT_ADAPTER = "accounts.adapters.NutriFitAccountAdapter"
+ACCOUNT_AUTHENTICATION_METHOD = "email"
+ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_UNIQUE_EMAIL = True
+ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_EMAIL_VERIFICATION = "none"  # 이메일 인증을 사용하지 않음(추후 추가 예정)
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
