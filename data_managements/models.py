@@ -39,14 +39,14 @@ class Ingredient(DataBaseModel):
     functionality = models.TextField(help_text="기능성")
     precautions = models.TextField(blank=True, null=True, help_text="섭취 시 주의사항")
     daily_intake_low = models.DecimalField(
-        max_digits=10,
+        max_digits=20,
         decimal_places=2,
         null=True,
         blank=True,
         help_text="일일섭취량 하한",
     )
     daily_intake_high = models.DecimalField(
-        max_digits=10,
+        max_digits=20,
         decimal_places=2,
         null=True,
         blank=True,
