@@ -30,6 +30,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG")
 
+SUPPLEMENT_SERVICE_API_KEY = os.getenv("SUPPLEMENT_SERVICE_API_KEY")
 INGREDIENT_SERVICE_API_KEY = os.getenv("INGREDIENT_SERVICE_API_KEY")
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS").split(",")
 

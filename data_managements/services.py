@@ -1,14 +1,18 @@
 import asyncio
-from asgiref.sync import sync_to_async
-import httpx
+import ssl
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from json import JSONDecodeError
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import transaction
+import httpx
 
-from .models import Ingredient
+from .models import (
+    DietarySupplements,
+    Ingredient,
+    Manufacturer,
+)
 
 
 # 식품의약품안전처 API를 통해 기능성 원료 데이터를 동기화
@@ -50,7 +54,7 @@ class IngredientDataSyncService:
 
         print(f"동기화 완료! 생성: {total_created}개, 업데이트: {total_updated}개")
         return total_created, total_updated
-    
+
     # API를 호출하여 전체 데이터 개수를 가져옴
     async def _get_total_count(self) -> int:
         url = f"{self.BASE_URL}/{self.api_key}/{self.SERVICE_ID}/{self.DATA_TYPE}/1/1"
@@ -84,10 +88,6 @@ class IngredientDataSyncService:
                     else:
                         updated_count += 1
                 return created_count, updated_count
-            except JSONDecodeError:
-                print(f"에러: {start}-{end} 범위의 API 응답이 JSON 형식이 아닙니다.")
-                print(f"서버 응답(첫 200자): {response.text[:200]}")
-                return 0, 0
             except (httpx.RequestError, KeyError, ValueError) as e:
                 print(f"에러: {start}-{end} 데이터 처리 중 오류 발생. {e}")
                 return 0, 0
@@ -141,3 +141,104 @@ class IngredientDataSyncService:
                 return obj, created
 
         return await _save_in_transaction()
+
+
+async def _fetch_data_from_api(client: httpx.AsyncClient, url: str):
+    try:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError as e:
+        print(f"HTTP 오류 발생: {e.response.status_code} - {e.response.text}")
+        return {}
+    except httpx.RequestError as e:
+        print(f"요청 중 오류 발생: {e}")
+        return {}
+
+
+# 건강기능식품 데이터 동기화
+async def sync_dietary_supplements(max_pages: int = None):
+
+    api_key = settings.SUPPLEMENT_SERVICE_API_KEY
+    base_url = "https://apis.data.go.kr/1471000/HtfsInfoService03/getHtfsItem01"
+    page_no = 1
+    num_of_rows = 100
+    total_processed = 0
+    created_count = 0
+    updated_count = 0
+
+    # SSL 컨텍스트 생성 (SSLV3_ALERT_ILLEGAL_PARAMETER 오류 방지)
+    context = ssl.create_default_context()
+    context.set_ciphers("DEFAULT@SECLEVEL=1")
+
+    async with httpx.AsyncClient(verify=context, timeout=30.0) as client:
+        while True:
+            # max_pages 옵션이 지정된 경우, 해당 페이지 수만큼만 처리
+            if max_pages is not None and page_no > max_pages:
+                print(f"--pages 옵션에 따라 {max_pages} 페이지만 처리하고 종료합니다.")
+                break
+
+            url = f"{base_url}?serviceKey={api_key}&pageNo={page_no}&numOfRows={num_of_rows}&type=json"
+
+            data = await _fetch_data_from_api(client, url)
+
+            if not data or data.get("header", {}).get("resultCode") != "00":
+                error_msg = data.get("header", {}).get("resultMsg", "알 수 없는 오류")
+                print(f"[DEBUG] API 응답 오류: {error_msg}")
+                break
+
+            items = data.get("body", {}).get("items", [])
+            if not items:
+                print("더 이상 가져올 데이터가 없습니다.")
+                break
+
+            for item_wrapper in items:
+                item = item_wrapper.get("item")
+                if not item:
+                    continue
+
+                # 제조사 정보 생성 또는 조회
+                manufacturer_name = item.get("ENTRPS", "").strip()
+                if not manufacturer_name:
+                    continue
+                manufacturer, created = await Manufacturer.objects.aupdate_or_create(
+                    name=manufacturer_name
+                )
+                if created:
+                    print(f"[DEBUG] 생성된 제조사: {manufacturer_name}")
+
+                # 건강기능식품 정보 생성 또는 업데이트
+                report_number = item.get("STTEMNT_NO")
+                if not report_number:
+                    continue
+
+                defaults = {
+                    "manufacturer": manufacturer,
+                    "name": item.get("PRDUCT") or "",
+                    "registration_date": item.get("REGIST_DT") or "",
+                    "appearance": item.get("SUNGSANG") or "",
+                    "usage_instructions": item.get("SRV_USE") or "",
+                    "shelf_life": item.get("DISTB_PD") or "",
+                    "storage_method": item.get("PRSRV_PD") or "",
+                    "precautions": item.get("INTAKE_HINT1") or "",
+                    "main_functionality": item.get("MAIN_FNCTN") or "",
+                }
+
+                supplement, created = (
+                    await DietarySupplements.objects.aupdate_or_create(
+                        report_number=report_number,
+                        defaults=defaults,
+                    )
+                )
+                if created:
+                    created_count += 1
+                else:
+                    updated_count += 1
+                total_processed += 1
+
+            print(f"{page_no} 페이지의 데이터 동기화 완료.")
+            page_no += 1
+
+    print(
+        f"총 {total_processed}개의 건강기능식품 데이터 처리 완료. 생성: {created_count}, 업데이트: {updated_count}."
+    )
