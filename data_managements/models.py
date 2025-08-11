@@ -119,7 +119,7 @@ class DietarySupplementsIngredient(DataBaseModel):
         Ingredient, on_delete=models.CASCADE, help_text="원료 (FK)"
     )
     content = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="원료 함량"
+        max_digits=20, decimal_places=2, help_text="원료 함량"
     )
 
     class Meta:

@@ -7,9 +7,11 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.db import transaction
 import httpx
+import re
 
 from .models import (
     DietarySupplements,
+    DietarySupplementsIngredient,
     Ingredient,
     Manufacturer,
 )
@@ -156,6 +158,82 @@ async def _fetch_data_from_api(client: httpx.AsyncClient, url: str):
         return {}
 
 
+# 건강기능식품과 원료 관계를 설정
+@sync_to_async
+def _process_supplement_ingredients(supplement: DietarySupplements):
+    if not supplement.standards_and_specifications:
+        return 0
+
+    # 모든 Ingredient 객체를 미리 조회하여 메모리에 로드 (N+1 문제 방지)
+    all_ingredients = {}
+    for ing in Ingredient.objects.all():
+        all_ingredients[ing.name] = ing
+
+    all_ingredient_names = set(all_ingredients.keys())
+    new_relations_dict = {}
+
+    pattern = re.compile(
+        r"^\d+\.\s*([^:(]+?)(?:\s*\([^)]*\))?\s*:\s*(.+)$", re.MULTILINE
+    )
+
+    for match in pattern.finditer(supplement.standards_and_specifications):
+        ingredient_name_from_api = match.group(1).strip()
+        content_text = match.group(2).strip()
+
+        # API에서 찾은 원료명이 DB에 존재하는지 확인
+        found_ingredient_name = next(
+            (
+                db_name
+                for db_name in all_ingredient_names
+                if db_name in ingredient_name_from_api
+            ),
+            None,
+        )
+
+        if not found_ingredient_name:
+            continue
+
+        # 함량 텍스트에서 숫자만 추출
+        content_match = re.search(r"[\d,.]+", content_text.replace(",", ""))
+        if not content_match:
+            continue
+
+        try:
+            content_value = Decimal(content_match.group(0))
+            ingredient = all_ingredients[found_ingredient_name]
+            new_relations_dict[ingredient.id] = {
+                "ingredient": ingredient,
+                "content": content_value,
+            }
+        except (InvalidOperation, KeyError):
+            continue
+
+    if not new_relations_dict:
+        return 0
+
+    created_count = 0
+    with transaction.atomic():
+        existing_ingredient_ids = set(
+            supplement.ingredients.values_list("id", flat=True)
+        )
+
+        relations_to_create = [
+            DietarySupplementsIngredient(
+                dietary_supplements=supplement,
+                ingredient=rel["ingredient"],
+                content=rel["content"],
+            )
+            for rel in new_relations_dict.values()
+            if rel["ingredient"].id not in existing_ingredient_ids
+        ]
+
+        if relations_to_create:
+            DietarySupplementsIngredient.objects.bulk_create(relations_to_create)
+            created_count = len(relations_to_create)
+
+    return created_count
+
+
 # 건강기능식품 데이터 동기화
 async def sync_dietary_supplements(max_pages: int = None):
 
@@ -166,6 +244,7 @@ async def sync_dietary_supplements(max_pages: int = None):
     total_processed = 0
     created_count = 0
     updated_count = 0
+    relations_created_count = 0
 
     # SSL 컨텍스트 생성 (SSLV3_ALERT_ILLEGAL_PARAMETER 오류 방지)
     context = ssl.create_default_context()
@@ -222,6 +301,8 @@ async def sync_dietary_supplements(max_pages: int = None):
                     "storage_method": item.get("PRSRV_PD") or "",
                     "precautions": item.get("INTAKE_HINT1") or "",
                     "main_functionality": item.get("MAIN_FNCTN") or "",
+                    # BASE_STANDARD 필드를 standards_and_specifications에 저장
+                    "standards_and_specifications": item.get("BASE_STANDARD") or "",
                 }
 
                 supplement, created = (
@@ -236,9 +317,14 @@ async def sync_dietary_supplements(max_pages: int = None):
                     updated_count += 1
                 total_processed += 1
 
+                # 원료 관계 설정
+                relations_created = await _process_supplement_ingredients(supplement)
+                relations_created_count += relations_created
+
             print(f"{page_no} 페이지의 데이터 동기화 완료.")
             page_no += 1
 
     print(
-        f"총 {total_processed}개의 건강기능식품 데이터 처리 완료. 생성: {created_count}, 업데이트: {updated_count}."
+        f"총 {total_processed}개의 건강기능식품 데이터 처리 완료. "
+        f"생성: {created_count}, 업데이트: {updated_count}, 신규 관계 설정: {relations_created_count}."
     )
