@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "core",
     "accounts",
     "data_managements",
+    "chats",
 ]
 
 SITE_ID = 1  # allauth에 필요
