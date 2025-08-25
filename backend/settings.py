@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
+    "drf_spectacular",
     # local apps
     "core",
     "accounts",
@@ -164,6 +165,7 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
 # dj-rest-auth 설정
@@ -196,4 +198,11 @@ SIMPLE_JWT = {
     "SIGNING_KEY": SECRET_KEY,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "NutriFit_AI API",
+    "DESCRIPTION": "NutriFit_AI 프로젝트를 위한 API 명세서",
+    "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,  # API 스키마를 포함할지 여부
 }
